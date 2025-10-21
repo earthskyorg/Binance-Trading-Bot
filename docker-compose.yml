@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  trading-bot:
+    build: .
+    container_name: binance-trading-bot
+    restart: unless-stopped
+    environment:
+      # API Configuration
+      - BINANCE_API_KEY=${BINANCE_API_KEY}
+      - BINANCE_API_SECRET=${BINANCE_API_SECRET}
+      
+      # Trading Configuration
+      - TRADING_STRATEGY=${TRADING_STRATEGY:-tripleEMAStochasticRSIATR}
+      - LEVERAGE=${LEVERAGE:-10}
+      - ORDER_SIZE=${ORDER_SIZE:-3.0}
+      - TRADING_INTERVAL=${TRADING_INTERVAL:-1m}
+      
+      # Risk Management
+      - SL_MULT=${SL_MULT:-1.5}
+      - TP_MULT=${TP_MULT:-1.0}
+      - TP_SL_CHOICE=${TP_SL_CHOICE:-%}
+      - TRADING_THRESHOLD=${TRADING_THRESHOLD:-0.3}
+      - MAX_POSITIONS=${MAX_POSITIONS:-10}
+      
+      # Trading Options
+      - TRADE_ALL_SYMBOLS=${TRADE_ALL_SYMBOLS:-true}
+      - SYMBOLS_TO_TRADE=${SYMBOLS_TO_TRADE:-BTCUSDT,ETHUSDT,ADAUSDT}
+      - COIN_EXCLUSION_LIST=${COIN_EXCLUSION_LIST:-USDCUSDT,BTCDOMUSDT}
+      
+      # Advanced Options
+      - USE_TRAILING_STOP=${USE_TRAILING_STOP:-false}
+      - TRAILING_STOP_CALLBACK=${TRAILING_STOP_CALLBACK:-0.1}
+      - USE_MARKET_ORDERS=${USE_MARKET_ORDERS:-false}
+      - WAIT_FOR_CANDLE_CLOSE=${WAIT_FOR_CANDLE_CLOSE:-true}
+      - USE_MULTIPROCESSING=${USE_MULTIPROCESSING:-true}
+      
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-20}
+      - LOG_TO_FILE=${LOG_TO_FILE:-true}
+      - LOG_FILE_PATH=/app/logs/trading_bot.log
+    
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./config:/app/config
+    
+    networks:
+      - trading-network
+    
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Add monitoring with Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: trading-bot-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - trading-network
+    profiles:
+      - monitoring
+
+  # Optional: Add Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: trading-bot-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    networks:
+      - trading-network
+    profiles:
+      - monitoring
+
+networks:
+  trading-network:
+    driver: bridge
+
+volumes:
+  prometheus_data:
+  grafana_data:
