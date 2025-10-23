@@ -134,17 +134,36 @@ async def run_bot(config_path: Optional[str], dry_run: bool = False) -> None:
         if dry_run:
             logger.info("Running in DRY-RUN mode - no actual trades will be executed")
         
-        # TODO: Initialize and run the actual trading bot
-        # This will be implemented when we refactor the existing bot code
+        # Initialize trading components
+        from .engine.trading_engine import TradingEngine
+        from .api.client import BinanceAPIClient
         
-        logger.info("Trading bot started successfully")
-        
-        # Keep running until interrupted
-        try:
-            while True:
-                await asyncio.sleep(1)
-        except KeyboardInterrupt:
-            logger.info("Received keyboard interrupt, shutting down...")
+        # Create API client
+        async with BinanceAPIClient(
+            api_key=config.settings.api_key,
+            api_secret=config.settings.api_secret,
+            testnet=dry_run
+        ) as api_client:
+            
+            # Initialize trading engine
+            trading_engine = TradingEngine(
+                api_client=api_client,
+                config=config.trading_config,
+                dry_run=dry_run
+            )
+            
+            # Start trading engine
+            await trading_engine.start()
+            
+            logger.info("Trading bot started successfully")
+            
+            # Keep running until interrupted
+            try:
+                while True:
+                    await asyncio.sleep(1)
+            except KeyboardInterrupt:
+                logger.info("Received keyboard interrupt, shutting down...")
+                await trading_engine.stop()
             
     except ConfigurationError as e:
         logger.error("Configuration error", error=str(e))

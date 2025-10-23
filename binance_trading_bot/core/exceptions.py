@@ -1,17 +1,11 @@
 """
-Custom exceptions for the trading bot.
+Custom exceptions for the Binance Trading Bot.
 """
-
-from typing import Optional
 
 
 class TradingBotError(Exception):
     """Base exception for all trading bot errors."""
-    
-    def __init__(self, message: str, error_code: Optional[str] = None):
-        super().__init__(message)
-        self.message = message
-        self.error_code = error_code
+    pass
 
 
 class ConfigurationError(TradingBotError):
@@ -19,41 +13,51 @@ class ConfigurationError(TradingBotError):
     pass
 
 
+class APIError(TradingBotError):
+    """Raised when there's an API-related error."""
+    pass
+
+
 class TradingError(TradingBotError):
     """Raised when there's a trading-related error."""
-    
-    def __init__(self, message: str, symbol: Optional[str] = None, error_code: Optional[str] = None):
-        super().__init__(message, error_code)
-        self.symbol = symbol
+    pass
+
+
+class StrategyError(TradingBotError):
+    """Raised when there's a strategy-related error."""
+    pass
+
+
+class DataError(TradingBotError):
+    """Raised when there's a data-related error."""
+    pass
+
+
+class ValidationError(TradingBotError):
+    """Raised when data validation fails."""
+    pass
 
 
 class ConnectionError(TradingBotError):
-    """Raised when there's a connection error with Binance API."""
+    """Raised when there's a connection error."""
     pass
 
 
-class AuthenticationError(TradingBotError):
-    """Raised when there's an authentication error with Binance API."""
+class InsufficientFundsError(TradingError):
+    """Raised when there are insufficient funds for a trade."""
     pass
 
 
-class InsufficientBalanceError(TradingError):
-    """Raised when there's insufficient balance for a trade."""
+class InvalidSymbolError(TradingError):
+    """Raised when an invalid trading symbol is provided."""
     pass
 
 
 class OrderError(TradingError):
-    """Raised when there's an error with order placement or management."""
-    
-    def __init__(self, message: str, symbol: Optional[str] = None, 
-                 order_id: Optional[str] = None, error_code: Optional[str] = None):
-        super().__init__(message, symbol, error_code)
-        self.order_id = order_id
+    """Raised when there's an order-related error."""
+    pass
 
 
-class StrategyError(TradingBotError):
-    """Raised when there's an error in strategy execution."""
-    
-    def __init__(self, message: str, strategy_name: Optional[str] = None):
-        super().__init__(message)
-        self.strategy_name = strategy_name
+class RiskManagementError(TradingError):
+    """Raised when risk management rules are violated."""
+    pass

@@ -6,21 +6,28 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '18'
+
 jobs:
   test:
+    name: Test Suite
     runs-on: ubuntu-latest
+    
     strategy:
       matrix:
-        python-version: [3.8, 3.9, 3.10, 3.11]
-
+        python-version: ['3.8', '3.9', '3.10', '3.11']
+    
     steps:
-    - uses: actions/checkout@v4
-
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
-
+    
     - name: Cache pip dependencies
       uses: actions/cache@v3
       with:
@@ -28,142 +35,146 @@ jobs:
         key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
         restore-keys: |
           ${{ runner.os }}-pip-
-
+    
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install pytest pytest-cov pytest-asyncio black flake8 mypy
-
-    - name: Lint with flake8
+    
+    - name: Code formatting check
+      run: black --check --diff .
+    
+    - name: Linting
+      run: flake8 binance_trading_bot tests
+    
+    - name: Type checking
+      run: mypy binance_trading_bot
+    
+    - name: Run tests
       run: |
-        flake8 binance_trading_bot tests --count --select=E9,F63,F7,F82 --show-source --statistics
-        flake8 binance_trading_bot tests --count --exit-zero --max-complexity=10 --max-line-length=88 --statistics
-
-    - name: Check code formatting with black
-      run: |
-        black --check binance_trading_bot tests
-
-    - name: Type check with mypy
-      run: |
-        mypy binance_trading_bot --ignore-missing-imports
-
-    - name: Test with pytest
-      run: |
-        pytest --cov=binance_trading_bot --cov-report=xml --cov-report=html
-
+        pytest tests/ \
+          --cov=binance_trading_bot \
+          --cov-report=xml \
+          --cov-report=html \
+          --cov-report=term-missing \
+          --junitxml=test-results.xml
+    
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
       with:
         file: ./coverage.xml
         flags: unittests
         name: codecov-umbrella
+        fail_ci_if_error: false
 
   security:
+    name: Security Scan
     runs-on: ubuntu-latest
+    
     steps:
-    - uses: actions/checkout@v4
-
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: 3.11
-
-    - name: Install dependencies
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install security tools
       run: |
         python -m pip install --upgrade pip
-        pip install safety bandit
+        pip install bandit safety
+    
+    - name: Run Bandit security scan
+      run: bandit -r binance_trading_bot/ -f json -o bandit-report.json
+    
+    - name: Run Safety check
+      run: safety check --json --output safety-report.json
+    
+    - name: Upload security reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-reports
+        path: |
+          bandit-report.json
+          safety-report.json
 
-    - name: Run safety check
-      run: |
-        safety check
-
-    - name: Run bandit security check
-      run: |
-        bandit -r binance_trading_bot/
-
-  docker:
+  build:
+    name: Build Docker Image
     runs-on: ubuntu-latest
     needs: [test, security]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     
     steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
-    - name: Build Docker image
-      uses: docker/build-push-action@v4
-      with:
-        context: .
-        push: false
-        tags: binance-trading-bot:latest
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-
-    - name: Test Docker image
-      run: |
-        docker run --rm binance-trading-bot:latest python -c "import binance_trading_bot; print('Import successful')"
-
-  deploy:
-    runs-on: ubuntu-latest
-    needs: [test, security, docker]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    - name: Checkout code
+      uses: actions/checkout@v4
     
-    steps:
-    - uses: actions/checkout@v4
-
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
-
+    
     - name: Login to Docker Hub
       uses: docker/login-action@v3
       with:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
-
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ secrets.DOCKER_USERNAME }}/binance-trading-bot
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+    
     - name: Build and push Docker image
-      uses: docker/build-push-action@v4
+      uses: docker/build-push-action@v5
       with:
         context: .
+        platforms: linux/amd64,linux/arm64
         push: true
-        tags: |
-          ${{ secrets.DOCKER_USERNAME }}/binance-trading-bot:latest
-          ${{ secrets.DOCKER_USERNAME }}/binance-trading-bot:${{ github.sha }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
-  release:
+  deploy:
+    name: Deploy to Production
     runs-on: ubuntu-latest
-    needs: [test, security]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build]
+    if: github.ref == 'refs/heads/main'
     
     steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: 3.11
-
-    - name: Install dependencies
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Deploy to production
       run: |
-        python -m pip install --upgrade pip
-        pip install build twine
+        echo "Deploying to production..."
+        # Add your deployment commands here
+        # This could include:
+        # - Updating Kubernetes manifests
+        # - Running database migrations
+        # - Updating load balancer configurations
+        # - Sending notifications
 
-    - name: Build package
+  notify:
+    name: Notify Results
+    runs-on: ubuntu-latest
+    needs: [test, security, build, deploy]
+    if: always()
+    
+    steps:
+    - name: Notify on success
+      if: ${{ needs.test.result == 'success' && needs.security.result == 'success' && needs.build.result == 'success' }}
       run: |
-        python -m build
-
-    - name: Check package
+        echo "All checks passed successfully!"
+        # Add notification logic here (Slack, Discord, email, etc.)
+    
+    - name: Notify on failure
+      if: ${{ needs.test.result == 'failure' || needs.security.result == 'failure' || needs.build.result == 'failure' }}
       run: |
-        twine check dist/*
-
-    - name: Publish to PyPI
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-      run: |
-        twine upload dist/*
-      env:
-        TWINE_USERNAME: __token__
-        TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+        echo "Some checks failed!"
+        # Add failure notification logic here
